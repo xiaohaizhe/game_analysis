@@ -28,6 +28,20 @@ class DBHelper():
         # 关闭数据库连接
         self.conn.close()
 
+
+    def is_game_exist(self):
+        cursor = self.conn.cursor()
+        sql = "SELECT id FROM game"
+        cursor.execute(sql)
+        count = cursor.rowcount
+        self.conn.commit()
+        cursor.close()
+        self.conn.close()
+        if count > 0 :
+            return True
+        else:
+            return False
+
     def query_game(self,item):
         cursor = self.conn.cursor()
         sql = "SELECT id FROM game WHERE full_name='%s' and host_team='%s' and visiting_team='%s' and kick_off_time = '%s'"
@@ -70,3 +84,19 @@ class DBHelper():
         cursor.close()
         self.conn.close()
         return odds_id
+
+
+    def query_latest_odd(self,item):
+        cursor = self.conn.cursor()
+        sql ="SELECT update_time FROM odds WHERE company_name='%s' and game_id='%s' ORDER BY update_time DESC LIMIT 1"
+        data = (item['company_name'], item['game_id'])
+        cursor.execute(sql % data)
+        update_time = None
+        for row in cursor.fetchall():
+            update_time = row[0]
+        # 查出数据数量
+        self.conn.commit()
+        cursor.close()
+        self.conn.close()
+        return update_time
+

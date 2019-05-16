@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import scrapy
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from game_analysis.items import Game, Odds
 from game_analysis.utils import create_uid
 from game_analysis.DBHelper import DBHelper
@@ -15,17 +15,33 @@ class SpiderTradeSpider(scrapy.Spider):
     start_urls = ['https://www.500.com/']
 
     def parse(self, response):
-        results = response.xpath("//ul[@class='lottery_box']//li[1]//div[@class='sub_lottery']//a[1]")
-        for result in results:
-            first_title = result.xpath("./text()").extract_first()
-            print(first_title)
-            link = result.xpath("./@href").extract_first()
-            link = "https:" + link
-            yield scrapy.Request(link, callback=self.parse_second)
+        db = DBHelper()
+        flag = db.is_game_exist()
+        if flag:
+            results = response.xpath("//ul[@class='lottery_box']//li[1]//div[@class='sub_lottery']//a[1]")
+            for result in results:
+                first_title = result.xpath("./text()").extract_first()
+                print(first_title)
+                link = result.xpath("./@href").extract_first()
+                link = "https:" + link
+                yield scrapy.Request(link, callback=self.parse_second, meta={"flag":True})
+        else:
+            # date = "2019-04-15"
+            # start = datetime.strptime(date, "%Y-%m-%d")
+            date = datetime.now()+timedelta(days=-30)
+            for i in range(30):
+                end = start+timedelta(days=i)
+                end = end.strftime("%Y-%m-%d")
+                link = "https://trade.500.com/jczq/?date=" + end
+                yield scrapy.Request(link, callback=self.parse_second, meta={"flag":False})
+
 
     def parse_second(self, response):
-        results = response.xpath("//tbody//tr[@class='bet-tb-tr']")
-        item = {}
+        flag = response.meta["flag"]
+        if flag:
+            results = response.xpath("//tbody//tr[@class='bet-tb-tr']")
+        else:
+            results = response.xpath("//tbody//tr[@class='bet-tb-tr bet-tb-end']")
         for result in results:
             game = Game()
             full_name = result.xpath(".//td[2]/a/@title").extract_first()
@@ -47,7 +63,6 @@ class SpiderTradeSpider(scrapy.Spider):
             else:
                 game_id = gid
             fid = link.split("-")[1].split(".")[0]
-            # print(game)
             yield scrapy.Request(link, callback=self.parse_third, meta={"fid": fid,"game_id":game_id})
 
     def parse_third(self, response):
@@ -92,6 +107,11 @@ class SpiderTradeSpider(scrapy.Spider):
                     result2.append(result)
             # print(company)
             # print(result2)
+            db = DBHelper()
+            odd = Odds()
+            odd['company_name'] = company
+            odd['game_id'] = game_id
+            latest_time = db.query_latest_odd(odd)
             for result in result2:
                 odds = Odds()
                 odds_id = create_uid()
@@ -103,8 +123,11 @@ class SpiderTradeSpider(scrapy.Spider):
                 odds['update_time']=result[4]
                 odds['return_rates']=result[3]
                 odds['game_id'] = game_id
-                db = DBHelper()
-                oid = db.query_odd(odds)
-                if oid == '':
-                    yield odds
+                if latest_time == None or latest_time<result[4]:
+                    db = DBHelper()
+                    oid = db.query_odd(odds)
+                    if oid == '':
+                        yield odds
+                else:
+                    break
 
